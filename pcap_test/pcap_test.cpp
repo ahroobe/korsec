@@ -23,6 +23,7 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 	libnet_tcp_hdr* tcp_hdr;
 
 	const u_char* payload;
+	const u_char* ch;
 	u_int ip_len;
 	u_int tcp_len;
 	u_int payload_len;
@@ -76,10 +77,19 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 			if(payload_len > 0){
 				printf("payload: ");
 				for(int i=0; i<payload_len;i++){
-					if(isprint(*payload))
-						printf("%c",*payload);
+					ch=payload;
+					if(isprint(*ch))
+						printf("%c",*ch);
 					else	
 						printf(".");
+					payload++;
+				}
+				printf("\n");
+
+				printf("payload in hex: ");
+				for(int i=0; i<payload_len; i++){
+					ch=payload;
+					printf("%02X",*payload);
 					payload++;
 				}
 				printf("\n");
