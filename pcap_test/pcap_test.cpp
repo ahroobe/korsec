@@ -105,7 +105,6 @@ int main(int argc, char *argv[]){
 	char errbuf[PCAP_ERRBUF_SIZE];
 	struct bpf_program fp;
 	struct pcap_pkthdr header;
-	const u_char *packet;
 	bpf_u_int32 mask;
 	bpf_u_int32 net;
 	char filter_exp[] = "";
