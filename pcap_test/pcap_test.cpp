@@ -76,7 +76,7 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 			printf("length of payload : %d\n", payload_len);
 			if(payload_len > 0){
 				printf("payload: ");
-				for(int i=0; i<payload_len;i++){
+				for(u_int i=0; i<payload_len;i++){
 					ch=payload;
 					if(isprint(*ch))
 						printf("%c",*ch);
@@ -87,7 +87,7 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 				printf("\n");
 
 				printf("payload in hex: ");
-				for(int i=0; i<payload_len; i++){
+				for(u_int i=0; i<payload_len; i++){
 					ch=payload;
 					printf("%02X",*payload);
 					payload++;
@@ -139,16 +139,13 @@ int main(int argc, char *argv[]){
 		return(2);
 	}
 	/* compile and apply the filter!! */
-	if (pcap_compile(handle, &fp, argv[1], 0, net) == -1) {
+	if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
 		fprintf(stderr, "Coudln't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
 		return(2);
 	}
 	if (pcap_setfilter(handle, &fp) == -1) {
 		fprintf(stderr, "Coudln't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
 	}
-
-	/* Grap a packet */
-	packet = pcap_next(handle, &header);
 	/* loop for 100 times */
 	pcap_loop(handle,100,callback, NULL);
 	/* close the session */
