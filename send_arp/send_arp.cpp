@@ -2,10 +2,12 @@
 #include <libnet.h>
 #include <unistd.h>
 #include <pcap.h>
-
+#include <ifaddrs.h>
+#include <string>
+using namespace std;
 /*
 1. get Victim's ip address (done)
-2. get my ip, mac, gateway(ip) address
+2. get my ip, mac, gateway(ip) address (done)
 3. get mac address of gateway and victim by using arp
 4. send arp reply packet to victim
 */
@@ -33,7 +35,7 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 
 		if(arp_hdr->ar_op == ARPOP_REPLY){
 			data = ((u_char*)arp_hdr);
-			for(u_int i=0; i<28;i++){
+			for(int i=8; i<14;i++){
 				if(isprint(*data))
 					printf("%c",*data);
 				else	
@@ -45,6 +47,10 @@ void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* p
 	}
 }
 int main(int argc, char *argv[]){
+	
+	struct ifaddrs *ifap, *ifa;
+	struct sockaddr_in *sa;
+	char *gtaddr;
 
 	pcap_t *handle;
 	struct bpf_program fp;
@@ -52,7 +58,7 @@ int main(int argc, char *argv[]){
 	bpf_u_int32 mask;
 	bpf_u_int32 net;
 	char filter_exp[] = "";
-
+	
 	u_int32_t my_ip, gateway_ip, victim_ip;
 	libnet_t *l;
 	libnet_ptag_t t;
@@ -108,6 +114,21 @@ int main(int argc, char *argv[]){
 	}
 	printf("Your IP address is ");
 	print_dotip4(my_ip);
+	
+	//get gateway's IP address
+	getifaddrs (&ifap);
+	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
+		string temp;
+		temp = ifa->ifa_name;
+		if (ifa->ifa_addr->sa_family==AF_INET && temp=="eth0") {
+			sa = (struct sockaddr_in *) ifa->ifa_addr;
+			gtaddr = inet_ntoa(sa->sin_addr);
+		}
+	}
+	printf("Interface IP address is %s\n",gtaddr);
+
+	freeifaddrs(ifap);
+
 
 	//get victim's IP address
 	printf("Victim IP address(XXX.XXX.XXX.XXX form) : ");
@@ -142,13 +163,15 @@ int main(int argc, char *argv[]){
 	if(libnet_adv_cull_packet(l, &packet, &packet_len) == -1){
 		fprintf(stderr, "%s", libnet_geterror(l));
 	} else{
-		fprintf(stderr, "packet size: %d\n", packet_len);
+		fprintf(stderr, "packet length: %d\n", packet_len);
 		libnet_adv_free_packet(l,packet);
 	}
 	
 	//send
 	printf("Sending arp packet....\n");
 	int c = libnet_write(l);
+
+	printf("Wating arp reply packet....\n");
 
 	/* loop for 1 times to get arp reply */
 	pcap_loop(handle,1,callback, NULL);
@@ -158,6 +181,7 @@ int main(int argc, char *argv[]){
 		fprintf(stderr, "Write error:%s\n", libnet_geterror(l));
 		return 2;
 	}
+
 	libnet_destroy(l);
 	pcap_close(handle);
 	return 0;
